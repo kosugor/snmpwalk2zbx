@@ -10,19 +10,19 @@ VER = "2c"
 COMMUNITY = "public"
 AGENT = "127.0.0.1"
 PORT = "161"
-OID = "."
+OID = ["."]
 
 ver = VER
 community = COMMUNITY
 agent = AGENT
 port = PORT
-oid = OID
 
 try:
     myopts, args = getopt.getopt(sys.argv[1:], "v:c:a:p:o")
+    print(getopt.getopt(sys.argv[1:], "v:c:a:p:o"))
 except getopt.GetoptError as e:
     print(str(e))
-    print("Usage: %s -v 1|2c|3 -c COMMUNITY -a AGENT -p PORT -o OID" % sys.argv[0])
+    print(f"Usage: {sys.argv[0]} -v 1|2c|3 -c COMMUNITY -a AGENT -p PORT OID [OID2...]")
     sys.exit(2)
 
 for option, argument in myopts:
@@ -38,17 +38,20 @@ for option, argument in myopts:
             agent = argument
         case "-p":
             port = argument
-        case "-o":
-            oid = argument
+
+oids = args
+if len(oids) == 0:
+    oids = OID
 
 
 def WalkResponse(v, c, a, p, o):
     if v == "1" or v == "2c":
-        command = "snmpwalk -v %s -c %s -On %s:%s %s" % (v, c, a, p, o)
+        command = f"snmpwalk -v {v} -c {c} -On {a}:{p} {o}"
         print("USING: " + command)
         wr = os.popen(command).read()
         return wr
 
 
-r = WalkResponse(ver, community, agent, port, oid)
-print(r)
+for oid in oids:
+    r = WalkResponse(ver, community, agent, port, oid)
+    print(r)
