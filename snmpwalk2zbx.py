@@ -54,21 +54,45 @@ def WalkResponse(v, c, a, p, o):
 
 
 def OIDtranslate(o):
-    trans = popen(f"snmptranslate -Td -OS {o}").read()
-    return trans
+    # returns a tuple (fullname, details)
+    transfull = popen(f"snmptranslate -Of {o}").read()
+    transdetail = popen(f"snmptranslate -Td -OS {o}").read()
+    return transfull.rstrip(), transdetail.rstrip()
+
+
+def BelongsToTable(k):
+    # must be executed after translations exist for checked oids, [0] is fullname
+    if "TABLE" in checkedoids[k][0].upper():
+        return True
 
 
 checkedoids = OrderedDict()
+
 for baseoid in baseoids:
     response = WalkResponse(ver, community, agent, port, baseoid).rstrip()
     responselines = response.split("\n")
+    print(f"response has {len(responselines)} lines")
     for responseline in responselines:
+        # checking if it is a numeric oid in the beginning of response line
         if re.match(r"(\.[0-9]+)+", responseline):
+            # taking only numeric oid
             currentoid = responseline.split("=")[0].rstrip()
+            # avoiding duplicate oids
             if currentoid not in checkedoids:
-                tr = OIDtranslate(currentoid)
-                trlines = tr.split("\n")
-                checkedoids[currentoid] = trlines[0]
+                trfull, trdetail = OIDtranslate(currentoid)
+                checkedoids[currentoid] = trfull, trdetail
+        else:
+            print("discarding line: '" + responseline + "'")
+
+print(f"Total OIDs: {len(checkedoids)}")
+
+scalars = []
+fullColumnNames = []
 
 for key, value in checkedoids.items():
-    print(key, value)
+    if not BelongsToTable(key):
+        scalars.append(key)
+
+print("simple items:", len(scalars))
+for sc in scalars:
+    print(checkedoids[sc][0])
