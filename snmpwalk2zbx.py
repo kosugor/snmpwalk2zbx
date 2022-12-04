@@ -3,7 +3,9 @@
 # Sorce https://github.com/kosugor/snmpwalk2zbx
 
 
-import os, sys, getopt
+import sys, getopt, re
+from os import popen
+from collections import OrderedDict
 
 # default values
 VER = "2c"
@@ -19,7 +21,6 @@ port = PORT
 
 try:
     myopts, args = getopt.getopt(sys.argv[1:], "v:c:a:p:o")
-    print(getopt.getopt(sys.argv[1:], "v:c:a:p:o"))
 except getopt.GetoptError as e:
     print(str(e))
     print(f"Usage: {sys.argv[0]} -v 1|2c|3 -c COMMUNITY -a AGENT -p PORT OID [OID2...]")
@@ -39,19 +40,35 @@ for option, argument in myopts:
         case "-p":
             port = argument
 
-oids = args
-if len(oids) == 0:
-    oids = OID
+baseoids = args
+if len(baseoids) == 0:
+    baseoids = OID
 
 
 def WalkResponse(v, c, a, p, o):
     if v == "1" or v == "2c":
         command = f"snmpwalk -v {v} -c {c} -On {a}:{p} {o}"
         print("USING: " + command)
-        wr = os.popen(command).read()
+        wr = popen(command).read()
         return wr
 
 
-for oid in oids:
-    r = WalkResponse(ver, community, agent, port, oid)
-    print(r)
+def OIDtranslate(o):
+    trans = popen(f"snmptranslate -Td -OS {o}").read()
+    return trans
+
+
+checkedoids = OrderedDict()
+for baseoid in baseoids:
+    response = WalkResponse(ver, community, agent, port, baseoid).rstrip()
+    responselines = response.split("\n")
+    for responseline in responselines:
+        if re.match(r"(\.[0-9]+)+", responseline):
+            currentoid = responseline.split("=")[0].rstrip()
+            if currentoid not in checkedoids:
+                tr = OIDtranslate(currentoid)
+                trlines = tr.split("\n")
+                checkedoids[currentoid] = trlines[0]
+
+for key, value in checkedoids.items():
+    print(key, value)
