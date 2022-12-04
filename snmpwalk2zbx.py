@@ -66,12 +66,27 @@ def BelongsToTable(k):
         return True
 
 
+def FindColumnName(k):
+    # must be executed after translations exist for checked oids, [0] is fullname
+    fn = checkedoids[k][0].upper()
+    namenodes = fn.split(".")
+    numbernodes = k.split(".")
+    for level, node in enumerate(namenodes[1:]):
+        if node.upper().endswith("TABLE"):
+            # table name is level+2, column name is level+4
+            co = numbernodes[: level + 4]
+            break
+    return ".".join(co)
+
+
 checkedoids = OrderedDict()
+scalars = []
+columnoids = []
 
 for baseoid in baseoids:
     response = WalkResponse(ver, community, agent, port, baseoid).rstrip()
     responselines = response.split("\n")
-    print(f"response has {len(responselines)} lines")
+    print(f"Response has {len(responselines)} lines")
     for responseline in responselines:
         # checking if it is a numeric oid in the beginning of response line
         if re.match(r"(\.[0-9]+)+", responseline):
@@ -81,18 +96,24 @@ for baseoid in baseoids:
             if currentoid not in checkedoids:
                 trfull, trdetail = OIDtranslate(currentoid)
                 checkedoids[currentoid] = trfull, trdetail
+                if not BelongsToTable(currentoid):
+                    scalars.append(currentoid)
+                    print(f"ADDING SIMPLE ITEM {currentoid}")
+                else:
+                    CN = FindColumnName(currentoid)
+                    if CN not in columnoids:
+                        columnoids.append(CN)
+                        print(f"ADDING COLUMN {CN}")
         else:
             print("discarding line: '" + responseline + "'")
+    print("")
 
 print(f"Total OIDs: {len(checkedoids)}")
 
-scalars = []
-fullColumnNames = []
+print("Simple items:", len(scalars))
+print("Columns:", len(columnoids))
 
-for key, value in checkedoids.items():
-    if not BelongsToTable(key):
-        scalars.append(key)
-
-print("simple items:", len(scalars))
+"""
 for sc in scalars:
     print(checkedoids[sc][0])
+"""
