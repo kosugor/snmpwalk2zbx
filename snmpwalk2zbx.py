@@ -98,12 +98,17 @@ for baseoid in baseoids:
                 checkedoids[currentoid] = trfull, trdetail
                 if not BelongsToTable(currentoid):
                     scalars.append(currentoid)
-                    print(f"ADDING SIMPLE ITEM {currentoid}")
+                    # this is not correct parent, first it needs to check how many oid levels in MIB::oid
+                    par = currentoid[: currentoid.rfind(".")]
+                    print(f"ADDING SIMPLE ITEM {currentoid}, PARENT {par}")
                 else:
                     CN = FindColumnName(currentoid)
                     if CN not in columnoids:
                         columnoids.append(CN)
-                        print(f"ADDING COLUMN {CN}")
+                        E = CN[: CN.rfind(".")]
+                        ti = E.rfind(".")
+                        TN = CN[:ti]
+                        print(f"TABLE {TN} COLUMN {CN}")
         else:
             print("discarding line: '" + responseline + "'")
     print("")
