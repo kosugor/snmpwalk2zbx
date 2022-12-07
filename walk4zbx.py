@@ -1,10 +1,13 @@
 # snmpwalk2zbx: Create a Zabbix template from an SNMPWALK response.
 # Copyright (C) Goran Kosutic 2022
-# Sorce https://github.com/kosugor/snmpwalk2zbx
+# Sorce https://github.com/kosugor/walk4zbx
 
 
-import sys, getopt, re
+import sys
+import getopt
+import re
 from os import popen
+from html import escape
 from collections import OrderedDict
 
 # default values
@@ -19,8 +22,11 @@ community = COMMUNITY
 agent = AGENT
 port = PORT
 
+detailpattern = re.compile(r'DESCRIPTION\s+"([^"]*)"')
+oidpattern = re.compile(r"(\.[0-9]+)+")
+
 try:
-    myopts, args = getopt.getopt(sys.argv[1:], "v:c:a:p:o")
+    myopts, args = getopt.getopt(sys.argv[1:], "v:c:a:p")
 except getopt.GetoptError as e:
     print(str(e))
     print(f"Usage: {sys.argv[0]} -v 1|2c|3 -c COMMUNITY -a AGENT -p PORT OID [OID2...]")
@@ -57,6 +63,7 @@ def OIDtranslate(o):
     # returns a tuple (fullname, details)
     transfull = popen(f"snmptranslate -Of {o}").read()
     transdetail = popen(f"snmptranslate -Td -OS {o}").read()
+    print(transdetail)
     return transfull.rstrip(), transdetail.rstrip()
 
 
@@ -79,6 +86,12 @@ def FindColumnName(k):
     return ".".join(co)
 
 
+def Details2html(det):
+    detsearch = detailpattern.search(det)
+    dettext = detsearch.group(1)
+    return escape(dettext)
+
+
 checkedoids = OrderedDict()
 scalars = []
 columnoids = []
@@ -89,7 +102,7 @@ for baseoid in baseoids:
     print(f"Response has {len(responselines)} lines")
     for responseline in responselines:
         # checking if it is a numeric oid in the beginning of response line
-        if re.match(r"(\.[0-9]+)+", responseline):
+        if oidpattern.match(responseline):
             # taking only numeric oid
             currentoid = responseline.split("=")[0].rstrip()
             # avoiding duplicate oids
