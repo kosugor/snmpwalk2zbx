@@ -36,7 +36,12 @@ class Setup:
         except getopt.GetoptError as e:
             print(str(e))
             print(
-                f"Usage: {sys.argv[0]} -v 1|2c|3 -c COMMUNITY -a AGENT -p PORT OID [OID2...]"
+                f"""Usage: {sys.argv[0]}\
+                    -v 1|2c|3 \
+                    -c COMMUNITY\
+                    -a AGENT\
+                    -p PORT\
+                    OID [OID2...]"""
             )
             sys.exit(2)
 
@@ -76,16 +81,18 @@ def OIDtranslate(o):
 
 
 def findLevels(o):
-    l = o.split(".")
-    return len(l)
+    li = o.split(".")
+    return len(li)
 
 
 def uplevels(o, n):
     newoid = o
-    for l in range(1, n + 1):
-        n = newoid.rfind(".")
-        newoid = newoid[:n]
-    return newoid
+    if n == 0:
+        return newoid
+    else:
+        t = newoid.rfind(".")
+        newoid = newoid[:t]
+        return uplevels(newoid, n - 1)
 
 
 def lastLevel(o):
@@ -152,9 +159,13 @@ for baseoid in s.baseoids:
                     parshort = lastLevel(parfull)
                     desc = desc2html(trdetail)
                     scalars.append((parshort, s, currentoid, trfull, desc))
-                    print(
-                        f"ADDING SIMPLE ITEM: APP {parshort} ITEM {m}::{s} KEY {currentoid}\n{trfull}\n{desc}\n"
-                    )
+                    addtext = "+++ADDING SIMPLE ITEM+++\n"
+                    addtext = addtext + f"ITEM {m}::{s}\n"
+                    addtext = addtext + f"KEY {currentoid}\n"
+                    addtext = addtext + f"APP {parshort}\n"
+                    addtext = addtext + f"FULLNAME {trfull}\n"
+                    addtext = addtext + f"DESCRIPTION {desc}\n"
+                    print(addtext)
                 else:
                     CN = FindColumnName(currentoid)
                     if CN not in columnoids:
