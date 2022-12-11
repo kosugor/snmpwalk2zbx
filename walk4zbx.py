@@ -112,6 +112,7 @@ def FindColumnName(k):
     fn = checkedoids[k][0].upper()
     namenodes = fn.split(".")
     numbernodes = k.split(".")
+    co = numbernodes
     for level, node in enumerate(namenodes[1:]):
         if node.upper().endswith("TABLE"):
             # table name is level+2, column name is level+4
@@ -122,8 +123,11 @@ def FindColumnName(k):
 
 def desc2html(det):
     detsearch = DESCpattern.search(det)
-    dettext = detsearch.group(1)
-    return escape(dettext)
+    try:
+        dettext = detsearch.group(1)
+        return escape(dettext)
+    except:
+        print("no description", det)
 
 
 def findMS(det):
@@ -153,6 +157,7 @@ for baseoid in s.baseoids:
                 trfull, trdetail, m, s = OIDtranslate(currentoid)
                 checkedoids[currentoid] = trfull, trdetail
                 if not BelongsToTable(currentoid):
+
                     # first it needs to check how many oid levels in short oid
                     levelsShort = findLevels(s)
                     parfull = uplevels(trfull, levelsShort)
@@ -165,13 +170,25 @@ for baseoid in s.baseoids:
                     addtext = addtext + f"APP {parshort}\n"
                     addtext = addtext + f"FULLNAME {trfull}\n"
                     addtext = addtext + f"DESCRIPTION {desc}\n"
-                    print(addtext)
+                    # print(addtext)
                 else:
-                    CN = FindColumnName(currentoid)
-                    if CN not in columnoids:
-                        columnoids.append(CN)
-                        TN = uplevels(CN, 2)
-                        # print(f"TABLE {TN} COLUMN {CN}")
+                    Coid = FindColumnName(currentoid)
+                    Ctrfull, Ctrdetail, m, s = OIDtranslate(Coid)
+                    if Coid not in columnoids:
+                        columnoids.append(Coid)
+                        Cdesc = desc2html(Ctrdetail)
+                        Toid = uplevels(Coid, 2)
+                        # Tname = uplevels(Ctrfull, 2)
+                        parfull = uplevels(Ctrfull, 3)
+                        parshort = lastLevel(parfull)
+                        addtext = "+++ADDING TABLE COLUMN+++\n"
+                        addtext = addtext + f"ITEM {m}::{s}\n"
+                        addtext = addtext + f"TABLE {Toid}\n"
+                        addtext = addtext + f"COLUMN {Coid}\n"
+                        addtext = addtext + f"APP {parshort}\n"
+                        addtext = addtext + f"FULLNAME {Ctrfull}\n"
+                        addtext = addtext + f"DESCRIPTION {Cdesc}\n"
+                        # print(addtext)
         else:
             print("discarding line: '" + responseline + "'")
     print("")
