@@ -5,195 +5,221 @@ import sys
 import getopt
 import re
 from os import popen
-from html import escape
-from collections import OrderedDict
 
+# from html import escape
 
 DESCpattern = re.compile(r'DESCRIPTION\s+"([^"]*)"')
-OIDpattern = re.compile(r"^(\.[0-9]+)+")
+OIDpattern = re.compile(r"^(\.[A-Za-z0-9-_]+)+")
 MSpattern = re.compile(r"^(\S*)::(\S*)")
+VMpattern = re.compile(r"INTEGER\s(.*)")
+temp = "{([^{}]+)\}"
 
 
-class Setup:
+class Walker:
     def __init__(self):
-        # default values
-        VER = "2c"
+        # default options and arguments
+        SNMPVER = "2c"
         COMMUNITY = "public"
-        AGENT = "127.0.0.1"
-        PORT = "161"
+        AGENT = "127.0.0.1:161"
         BASEOIDS = [
             ".",
         ]
-        self.ver = VER
+        # default zabbix item configuration
+        UPDATEINTERVAL = "60"
+        DISCINTERVAL = "3600"
+        HISTORY = "7"
+        TRENDS = "365"
+        # exit codes
+        EX_OK = 0
+        EX_USAGE = 64
+        self.oidset = set()
+        self.scalarset = set()
+        self.columnset = set()
+        helpMessage = f"""\
+Usage: python3 {sys.argv[0]} [OPTIONS] AGENT OID [OID...]
+
+Create a Zabbix template from an snmpwalk response.
+Copyright (C) Goran Kosutic 2022
+Source https://github.com/kosugor/walk4zbx
+
+OPTIONS:
+    -h, --help                  display this help message and exit
+    -v, snmpver=1|2c|3          specifies SNMP version to use (default: '2c')
+
+SNMP version 1 or 2 specific
+    -c, community=COMMUNITY     community string (default: 'public')
+
+SNMP version 3 specific
+    -l, --level=LEVEL           security level (noAuthNoPriv|authNoPriv|authPriv)
+    -n, --context==CONTEXT      context name
+    -u, --username=USER-NAME    security name
+    -a, --auth=PROTOCOL         authentication protocol (MD5|SHA|SHA-224|SHA-256|SHA-384|SHA-512)
+    -A, --authpass=PASSPHRASE   authentication protocol pass phrase
+    -x, --privacy=PROTOCOL      privacy protocol (DES|AES|AES-192|AES-256)
+    -X, --privpass=PASSPHRASE   privacy protocol pass phrase
+
+Zabbix item configuration
+    -U, --update=SECONDS        update interval in seconds (default: 60)
+    -D, --discover=SECONDS      discovery interval in seconds (default: 3600)
+    -H, --history=DAYS          history retention in days (default: 7)
+    -T, --trends=DAYS           trends retention in days (default: 365)
+
+ARGUMENTS:
+    AGENT                       SNMP agent (default: '127.0.0.1:161')
+    OID [OID...]                list of oid roots to export (default: '.')
+"""
+        try:
+            myopts, args = getopt.getopt(
+                sys.argv[1:],
+                "hv:c:l:n:u:a:A:x:X:U:D:H:T:",
+                [
+                    "help",
+                    "snmpver=",
+                    "community=",
+                    "level=",
+                    "context=",
+                    "username=",
+                    "auth=",
+                    "authpass=",
+                    "privacy=",
+                    "privpass=",
+                    "update=",
+                    "discover=",
+                    "history=",
+                    "trends=",
+                ],
+            )
+        except getopt.GetoptError as e:
+            sys.stderr.write("ERROR: %s\r\n%s\r\n" % (str(e), helpMessage))
+            sys.exit(EX_USAGE)
+
+        self.snmpver = SNMPVER
         self.community = COMMUNITY
         self.agent = AGENT
-        self.port = PORT
         self.baseoids = BASEOIDS
-
-    def readParams(self):
-        try:
-            myopts, args = getopt.getopt(sys.argv[1:], "v:c:a:p")
-        except getopt.GetoptError as e:
-            print(str(e))
-            print(
-                f"""Usage: {sys.argv[0]}\
-                    -v 1|2c|3 \
-                    -c COMMUNITY\
-                    -a AGENT\
-                    -p PORT\
-                    OID [OID2...]"""
-            )
-            sys.exit(2)
-
         for option, argument in myopts:
-            match option:
-                case "-v":
-                    if argument in ["1", "2c", "3"]:
-                        self.ver = argument
-                    else:
-                        print("snmp version not recognized, using default (2c)")
-                case "-c":
-                    self.community = argument
-                case "-a":
-                    self.agent = argument
-                case "-p":
-                    self.port = argument
-
-        if len(args) != 0:
-            self.baseoids = args
-
-
-def WalkResponse(v, c, a, p, o):
-    if v == "1" or v == "2c":
-        command = f"snmpwalk -v {v} -c {c} -On {a}:{p} {o}"
-        print("USING: " + command)
-        wr = popen(command).read()
-        return wr.rstrip()
-
-
-def OIDtranslate(o):
-    # returns a tuple (fullname, details)
-    transfull = popen(f"snmptranslate -Of {o}").read()
-    transdetail = popen(f"snmptranslate -Td -OS {o}").read()
-    # determine MIB and short symbolic name
-    ms = findMS(transdetail)
-    return transfull.rstrip(), transdetail.rstrip(), ms[0], ms[1]
-
-
-def findLevels(o):
-    li = o.split(".")
-    return len(li)
-
-
-def uplevels(o, n):
-    newoid = o
-    if n == 0:
-        return newoid
-    else:
-        t = newoid.rfind(".")
-        newoid = newoid[:t]
-        return uplevels(newoid, n - 1)
-
-
-def lastLevel(o):
-    t = o.rfind(".") + 1
-    ll = o[t:]
-    return ll
-
-
-def BelongsToTable(k):
-    # must be executed after translations exist for checked oids, [0] is fullname
-    if "TABLE" in checkedoids[k][0].upper():
-        return True
-
-
-def FindColumnName(k):
-    # must be executed after translations exist for checked oids, [0] is fullname
-    fn = checkedoids[k][0].upper()
-    namenodes = fn.split(".")
-    numbernodes = k.split(".")
-    co = numbernodes
-    for level, node in enumerate(namenodes[1:]):
-        if node.upper().endswith("TABLE"):
-            # table name is level+2, column name is level+4
-            co = numbernodes[: level + 4]
-            break
-    return ".".join(co)
-
-
-def desc2html(det):
-    detsearch = DESCpattern.search(det)
-    try:
-        dettext = detsearch.group(1)
-        return escape(dettext)
-    except:
-        print("no description", det)
-
-
-def findMS(det):
-    MSmatch = MSpattern.match(det)
-    if MSmatch:
-        return MSmatch.groups()
-
-
-checkedoids = OrderedDict()
-scalars = []
-columnoids = []
-
-s = Setup()
-s.readParams()
-
-for baseoid in s.baseoids:
-    response = WalkResponse(s.ver, s.community, s.agent, s.port, baseoid)
-    responselines = response.splitlines()
-    print(f"Response has {len(responselines)} lines")
-    for responseline in responselines:
-        # checking if it is a numeric oid in the beginning of response line
-        oidmatch = OIDpattern.match(responseline)
-        if oidmatch:
-            currentoid = oidmatch.group()
-            # avoiding duplicate oids
-            if currentoid not in checkedoids:
-                trfull, trdetail, m, s = OIDtranslate(currentoid)
-                checkedoids[currentoid] = trfull, trdetail
-                if not BelongsToTable(currentoid):
-
-                    # first it needs to check how many oid levels in short oid
-                    levelsShort = findLevels(s)
-                    parfull = uplevels(trfull, levelsShort)
-                    parshort = lastLevel(parfull)
-                    desc = desc2html(trdetail)
-                    scalars.append((parshort, s, currentoid, trfull, desc))
-                    addtext = "+++ADDING SIMPLE ITEM+++\n"
-                    addtext = addtext + f"ITEM {m}::{s}\n"
-                    addtext = addtext + f"KEY {currentoid}\n"
-                    addtext = addtext + f"APP {parshort}\n"
-                    addtext = addtext + f"FULLNAME {trfull}\n"
-                    addtext = addtext + f"DESCRIPTION {desc}\n"
-                    # print(addtext)
+            if option == "-h" or option == "--help":
+                sys.stderr.write(helpMessage)
+                sys.exit(EX_OK)
+            if option == "-v" or option == "--snmpver":
+                if argument in ["1", "2c", "3"]:
+                    self.snmpver = argument
                 else:
-                    Coid = FindColumnName(currentoid)
-                    Ctrfull, Ctrdetail, m, s = OIDtranslate(Coid)
-                    if Coid not in columnoids:
-                        columnoids.append(Coid)
-                        Cdesc = desc2html(Ctrdetail)
-                        Toid = uplevels(Coid, 2)
-                        # Tname = uplevels(Ctrfull, 2)
-                        parfull = uplevels(Ctrfull, 3)
-                        parshort = lastLevel(parfull)
-                        addtext = "+++ADDING TABLE COLUMN+++\n"
-                        addtext = addtext + f"ITEM {m}::{s}\n"
-                        addtext = addtext + f"TABLE {Toid}\n"
-                        addtext = addtext + f"COLUMN {Coid}\n"
-                        addtext = addtext + f"APP {parshort}\n"
-                        addtext = addtext + f"FULLNAME {Ctrfull}\n"
-                        addtext = addtext + f"DESCRIPTION {Cdesc}\n"
-                        # print(addtext)
-        else:
-            print("discarding line: '" + responseline + "'")
-    print("")
+                    print("snmp version not recognized, using default (2c)")
+            if option == "-c" or option == "--community":
+                if argument is not None:
+                    self.community = argument
+            if option == "-l" or option == "--level":
+                self.level = argument
+            if option == "-n" or option == "--context":
+                self.context = argument
+            if option == "-u" or option == "--username":
+                self.username = argument
+            if option == "-a" or option == "--auth":
+                self.auth = argument
+            if option == "-A" or option == "--authpass":
+                self.authpas = argument
+            if option == "-x" or option == "--privacy":
+                self.privacy = argument
+            if option == "-X" or option == "--privpass":
+                self.privpass = argument
+            if option == "-U" or option == "--update":
+                try:
+                    argint = int(argument)
+                    self.updateinterval = argint
+                except ValueError:
+                    print("using using default update interval")
+                    self.updateinterval = UPDATEINTERVAL
+            if option == "-D" or option == "--discover":
+                try:
+                    argint = int(argument)
+                    self.discdelay = argint
+                except ValueError:
+                    print("using using default discovery delay")
+                    self.discinterval = DISCINTERVAL
+            if option == "-H" or option == "--history":
+                try:
+                    argint = int(argument)
+                    self.history = argint
+                except ValueError:
+                    print("using using default discovery delay")
+                    self.history = HISTORY
+            if option == "-T" or option == "--trends":
+                try:
+                    argint = int(argument)
+                    self.trends = argint
+                except ValueError:
+                    print("using using default discovery delay")
+                    self.trends = TRENDS
 
-print(f"Total OIDs: {len(checkedoids)}")
+        if len(args) > 1:
+            self.agent = args[0]
+            self.baseoids = args[1:]
 
-print("Simple items:", len(scalars))
-print("Columns:", len(columnoids))
+    def walk(self):
+        for baseoid in self.baseoids:
+            if self.snmpver == "1" or self.snmpver == "2c":
+                command = f"snmpwalk -v {self.snmpver} -c {self.community}"
+            if self.snmpver == "3":
+                command = f"snmpwalk -v 3 -a {self.auth} -A {self.authpass}"
+                command += f" -l {self.level} -n {self.context}"
+                command += f" -u {self.user} -x {self.protocol}"
+                command += f" -X {self.passphrase}"
+            command += f" -Of {self.agent} {baseoid}"
+            print("USING: " + command)
+            walkresponse = popen(command).read()
+            walkresponse = walkresponse.strip()
+            responselines = walkresponse.splitlines()
+            print(f"Response has {len(responselines)} lines")
+            for r in responselines:
+                # checking if it is a numeric oid in the beginning of response line
+                oidmatch = OIDpattern.match(r)
+                if oidmatch:
+                    currentoid = oidmatch.group()
+                    self.oidset.add(currentoid)
+                else:
+                    print("Discarding line: ", r)
+
+    def classify(self):
+        for oid in self.oidset:
+            if "TABLE" in oid.upper():
+                nodes = oid.split(".")
+                col = nodes
+                for level, node in enumerate(nodes[1:]):
+                    if node.upper().endswith("TABLE"):
+                        # table name is level+2, column name is level+4
+                        col = nodes[: level + 4]
+                        break
+                coloid = ".".join(col)
+                self.columnset.add(coloid)
+            else:
+                self.scalarset.add(oid)
+
+
+class OIDitem:
+    def __init__(self, o):
+        self.oid = o
+        self.mib = ""
+        self.short = ""
+        self.detail = ""
+        transdetail = popen(f"snmptranslate -Td -OS {o}").read()
+        self.detail = transdetail.rstrip()
+        # determine MIB and short symbolic name
+        MSmatch = MSpattern.match(self.detail)
+        if MSmatch:
+            ms = MSmatch.groups()
+            self.mib = ms[0]
+            self.short = ms[1]
+
+        VMmatch = VMpattern.match(self.detail)
+        if VMmatch:
+            vm = VMmatch.groups()
+            print(vm)
+
+
+walker = Walker()
+walker.walk()
+walker.classify()
+
+for scalar in sorted(walker.scalarset):
+    OID = OIDitem(scalar)
