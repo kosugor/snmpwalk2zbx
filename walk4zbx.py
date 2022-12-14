@@ -8,11 +8,12 @@ from os import popen
 
 # from html import escape
 
-DESCpattern = re.compile(r'DESCRIPTION\s+"([^"]*)"')
-OIDpattern = re.compile(r"^(\.[A-Za-z0-9-_]+)+")
-MSpattern = re.compile(r"^(\S*)::(\S*)")
-VMpattern = re.compile(r"INTEGER\s(.*)")
-temp = "{([^{}]+)\}"
+DESCpattC = re.compile(r'DESCRIPTION\s+"([^"]*)"')
+OIDpattC = re.compile(r"^(\.[A-Za-z0-9-_]+)+")
+MSpattC = re.compile(r"^(\S*)::(\S*)")
+SYNpattC = re.compile(r"SYNTAX\s+INTEGER\s+\{(.*)\s?\}")
+VMpattC = re.compile(r"([^{}()\s]+)[(](\d+)[)]")
+CONVpattC = re.compile(r"TEXTUAL CONVENTION (.*)")
 
 
 class Walker:
@@ -173,7 +174,7 @@ ARGUMENTS:
             print(f"Response has {len(responselines)} lines")
             for r in responselines:
                 # checking if it is a numeric oid in the beginning of response line
-                oidmatch = OIDpattern.match(r)
+                oidmatch = OIDpattC.match(r)
                 if oidmatch:
                     currentoid = oidmatch.group()
                     self.oidset.add(currentoid)
@@ -205,16 +206,28 @@ class OIDitem:
         transdetail = popen(f"snmptranslate -Td -OS {o}").read()
         self.detail = transdetail.rstrip()
         # determine MIB and short symbolic name
-        MSmatch = MSpattern.match(self.detail)
+        MSmatch = MSpattC.match(self.detail)
         if MSmatch:
             ms = MSmatch.groups()
             self.mib = ms[0]
             self.short = ms[1]
 
-        VMmatch = VMpattern.match(self.detail)
-        if VMmatch:
-            vm = VMmatch.groups()
-            print(vm)
+    def description(self):
+        DESCsearch = DESCpattC.search(self.detail)
+        if DESCsearch:
+            return DESCsearch.group(1)
+
+    def valuemap(self):
+        SYNsearch = SYNpattC.search(self.detail)
+        if SYNsearch:
+            vm = SYNsearch.group(1)
+            vmlist = VMpattC.findall(vm)
+            return vmlist
+
+    def textconv(self):
+        CONVsearch = CONVpattC.search(self.detail)
+        if CONVsearch:
+            return CONVsearch.group(1)
 
 
 walker = Walker()
@@ -223,3 +236,7 @@ walker.classify()
 
 for scalar in sorted(walker.scalarset):
     OID = OIDitem(scalar)
+    if OID.valuemap():
+        print(OID.mib + "::" + OID.short)
+        # print(OID.description())
+        print(OID.textconv(), OID.valuemap(), "\n")
